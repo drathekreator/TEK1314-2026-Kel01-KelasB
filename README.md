@@ -1,7 +1,7 @@
 # Proyek Problem Based Learning (PBL) Keamanan Siber - Kelompok 01
 ---
-**Mata Kuliah:** TEKTEK1314 - Keamanan Siber
-**Program Studi:** Teknologi Rekayasa Komputer
+**Mata Kuliah:** TEKTEK1314 - Keamanan Siber\
+**Program Studi:** Teknologi Rekayasa Komputer\
 **Fase Proyek:** Minggu ke-3 & 4 (Perancangan Arsitektur & Skema IP)
 
 ---
