@@ -1,106 +1,103 @@
-# Attack Plan — Blue Team Control Validation
+# Attack Plan — Isolated VM Outage, Recovery & Patch Exercise
 
 **Project:** TEK1314 Cybersecurity PBL, Kelompok 01  
-**Purpose:** Validate documented hardening and SIEM coverage with safe, attributable tests.  
-**Scope:** `target-server` (`192.168.1.5`, `192.168.56.10`, NAT DHCP); `iot-node` (`192.168.1.40`); `cyber-workstation` (`192.168.1.20`); `sec-onion` (`192.168.56.30`). Test only during approved lab window.  
-**Excluded:** Stealth, SIEM evasion, brute force, exploitation, arbitrary command execution, privilege escalation, persistence, destructive traffic, and extraction or alteration of real telemetry/data.
+**Scenario:** Red Team causes bounded service outages inside isolated lab VMs. Blue Team detects, restores services, applies hardening/security patches, then verifies recovery.  
+**Scope:** `target-server` (`192.168.1.5`, `192.168.56.10`), `iot-node` (`192.168.1.40`), `cyber-workstation` (`192.168.1.20`), `sec-onion` (`192.168.56.30`), Docker stack `/opt/iot-target-stack`.  
+**Excluded:** Stealth, SIEM evasion, log deletion, persistence, backdoors, data theft, external/NAT hosts, shared networks, permanent damage.
 
-## 1. Key Blueprint Risks to Validate
+## 1. Objectives
 
-These are source-level concerns from the blueprint, not confirmed runtime findings:
+- Validate detection of service loss and dependent-service failures.
+- Measure detection time, recovery time, and restoration success against agreed RTO/RPO.
+- Exercise VM snapshot restore and Blue Team recovery process.
+- Apply security fixes after recovery and verify via repeat tests.
 
-1. Mosquitto config sets `allow_anonymous true` and listens on `0.0.0.0:1883`. Anonymous access may allow unauthorized telemetry read/write unless other controls intervene.
-2. Nginx exposes `/api/telemetry`; API route returns the latest 20 records without visible authentication or authorization. Sensitive data exposure depends on deployment and data classification.
-3. Nginx uses HTTP on port 80 only; TLS is not configured in shown config. Credentials/session confidentiality risk depends on network and application use.
-4. Docker Compose maps Mosquitto and Nginx ports to all host interfaces by default; target also has internal, management, and NAT interfaces. Effective bind/firewall behavior requires runtime validation.
-5. PostgreSQL has no host port mapping in shown Compose, which is positive, but application config contains default credentials and Compose has fixed database credentials. Validate secret handling and ensure no other exposure.
-6. SSH is allowed by UFW only from `192.168.56.0/24`, while attacker workstation resides on `192.168.1.0/24`. Test expected denial from workstation; authorized management access is a separate Blue Team check.
-7. UFW rules shown allow HTTP and MQTT from internal subnet, but not HTTPS; IP plan mentions 443 although blueprint has no TLS listener. Confirm intended state.
-8. `net.ipv4.ip_forward=0` and NAT interface may conflict with routing expectations. Verify routing; do not change it during assessment.
-9. Node API accepts JSON and inserts MQTT-derived fields into database. Parameterized SQL is used, but input validation and topic authorization are not shown. Use only safe test namespace/principal; do not inject payloads.
-10. IoT publisher uses unauthenticated MQTT client in shown code and publishes to production telemetry topic. Do not alter or spoof that topic; validate publisher identity through config review.
+## 2. Safety Rules
 
-## 2. Rules of Engagement
+1. Use isolated VirtualBox Internal Network and Host-Only only; disable bridged networking. Do not touch NAT/external addresses.
+2. Snapshot `target-server`, `iot-node`, and `sec-onion`; verify restore access before tests.
+3. Run one failure at a time; default injection window 60 seconds, hard maximum 120 seconds.
+4. Keep target console access. Prefer reversible service stops; no resource exhaustion or data deletion.
+5. Stop immediately on hypervisor instability, suspected data corruption, traffic leaving lab, SIEM overload, or an unexpected asset response.
+6. Red Team injects fault. Blue Team restores service and applies remediation.
+7. Record UTC start/end, test ID, command, observed impact, detection evidence, restore action, recovery time, and retest result.
 
-- Use only listed lab nodes and explicitly allowed ports. Do not test NAT addresses or any external host.
-- Obtain Blue Team approval before active checks; snapshot VMs and synchronize clocks.
-- Use disposable credentials and synthetic data. Never publish to `iot/sensor/telemetry` during Red Team tests.
-- Low-rate, single-target checks only. Stop on unexpected response, instability, out-of-scope route, real-data exposure, or sensor overload.
-- Preserve timestamps, source/destination, test ID, exact command, output, host log evidence, and SIEM event IDs.
-- Red Team does not modify configuration. Blue Team performs privileged checks, cleanup, and remediation.
+## 3. Roles and Preflight
 
-## 3. Procedure and Expected Outcomes
+- **Lead:** Approves scope, window, duration, stop conditions, and RTO/RPO.
+- **Red Team:** Executes only listed bounded fault injections and preserves evidence.
+- **Blue Team:** Monitors Security Onion, declares detection, restores services, patches, and retests.
+- Confirm snapshots, console access, no bridged NICs, synchronized clocks, and contact channel.
+- Blue Team records baseline service health, Docker status, API `/health`, MQTT telemetry heartbeat, SSH access, UFW, SIEM sensor health, Zeek/Suricata state, and baseline alert count.
+- If baseline traffic is not visible in Security Onion, pause fault injection until sensor limitation is documented.
 
-### Phase 0 — Authorization and sensor baseline
+## 4. Exercise Sequence
 
-Confirm test window, assets, approved ports, test accounts/topics, and Blue Team contact. Blue Team confirms Security Onion sensor state, SPAN capture on `eth0`, management access on `192.168.56.30`, active Suricata rules, Zeek logging, time synchronization, and baseline event count. If packet visibility is absent, pause tests and record a monitoring limitation.
+### Phase A — Baseline
 
-### Phase 1 — Network exposure and interface policy
+Run `P-01` through `P-03` from `attack_command.md`. Confirm all expected services healthy and logs visible.
 
-From `cyber-workstation`, check only TCP `22, 80, 443, 1883, 5432` on `192.168.1.5`. Blue Team separately reviews listeners and firewall rules on all target interfaces, including Host-Only and NAT. Compare observed exposure with intended policy:
+### Phase B — Fault injection
 
-- SSH: management subnet only; internal workstation expected denied.
-- HTTP: internal lab only, if required.
-- HTTPS: not configured in shown blueprint; confirm expected status before labeling.
-- MQTT: internal lab only; restrict to intended publisher/API where possible.
-- PostgreSQL: no host exposure; do not connect or authenticate.
+For each approved AV test:
 
-Unexpected open port or interface binding becomes a finding; do not enumerate further without scope approval.
+1. Lead calls test ID and confirms Blue Team ready.
+2. Record pre-state and UTC start.
+3. Red Team runs only the listed reversible command.
+4. Blue Team identifies fault from telemetry and records time-to-detect.
+5. Restore at detection or at 60 seconds, whichever comes first; absolute stop at 120 seconds.
+6. Blue Team runs health checks; record time-to-recover and service/data integrity.
+7. Do not start next test until Lead confirms healthy baseline.
 
-### Phase 2 — SSH access controls
+### Phase C — Patch and recovery hardening
 
-Blue Team reviews effective SSH configuration and firewall. From internal workstation, make at most one connection attempt to port 22; expected result is blocked if policy is applied. From an authorized management client only, perform one failed login using disposable account then one successful approved account login. Check root login disabled, `MaxAuthTries=3`, `LoginGraceTime=30`, X11 and TCP forwarding disabled, session logging present, and Fail2ban behavior using Blue Team evidence. Do not deliberately trigger bans through repeated attempts.
+Blue Team restores snapshot if needed, then applies documented changes. Likely fixes from blueprint: disable anonymous MQTT and add topic ACLs; protect `/api/telemetry` with authentication/authorization; add TLS if required; remove hard-coded DB credentials; add container healthchecks and downtime alerts; align firewall/interface rules; verify log forwarding and time sync. Update OS/packages through approved maintenance process.
 
-### Phase 3 — Web and API authorization / transport
+### Phase D — Retest
 
-Use read-only HTTP requests to `/health` and `/api/telemetry`. Test only synthetic lab data; Blue Team confirms response is not sensitive. Record authentication behavior, status code, headers, content type, and Nginx/API logs. Confirm whether API should require authentication and whether HTTPS is required. Do not submit malformed input, modify records, or test injection.
+Rerun only failed AV tests and relevant baseline checks. Confirm both service recovery and Security Onion detection. Record patch versions/config changes and attach before/after evidence.
 
-### Phase 4 — MQTT access-control validation
+## 5. Bounded Availability Test Cases
 
-Blue Team reviews effective Mosquitto config and ACLs. If approved, use disposable client against a dedicated `lab/test/<run-id>` topic only. Validate one authorized operation and one denied operation with explicitly provisioned test principals. Confirm anonymous access status from config and broker logs. Never subscribe or publish to `iot/sensor/telemetry`, wildcard topics, or other clients' topics; never test retained-message or wildcard exposure on real topics.
+| ID | Fault | Expected signal | Approved restore | Maximum |
+|---|---|---|---|---|
+| AV-01 | Stop Nginx container | `/health` fails; Zeek HTTP gap; container state event | Start `iot-nginx` | 60 sec |
+| AV-02 | Stop API container | Nginx returns upstream failure; API health fails | Start `iot-telemetry-api` | 60 sec |
+| AV-03 | Stop Mosquitto container | Broker unavailable; telemetry heartbeat stops | Start `iot-mosquitto` | 60 sec |
+| AV-04 | Stop PostgreSQL container | API logs DB connection failure; container event | Start `iot-postgres` | 60 sec |
+| AV-05 | Stop IoT publisher service | Telemetry heartbeat stops | Start `iot-sensor` via OpenRC | 60 sec |
+| AV-06 | Stop SSH daemon from target console | Management SSH fails; service state change logged | Start SSH service locally | 60 sec |
+| AV-07 | Briefly block tester source to one approved service using temporary firewall rule | Connection denied; UFW event | Delete exact temporary rule | 30 sec |
 
-### Phase 5 — Container/database boundary
+AV-07 requires Lead approval and a second operator at target console. Save exact rule handle/rule number before insertion; remove only that rule. Do not flush/reset firewall. No CPU/memory/disk/network flood tests. No sensor shutdown test in this run; validate sensor-health monitoring by reviewing status and existing logs instead.
 
-Blue Team inspects Compose rendering, port bindings, container network, privileges, mounts, environment variables, logs, and secret source. Confirm PostgreSQL has no host binding and is reachable only by API service. Do not query DB or attempt credentials. Flag default/static credentials in source/config for rotation and secret-store remediation without attempting authentication.
+## 6. Patch / Recovery Checklist
 
-### Phase 6 — Host hardening and telemetry
+- Confirm Docker `restart` policy and healthchecks for Mosquitto, API, Nginx, PostgreSQL.
+- Alert on container stop/restart, endpoint health failure, MQTT heartbeat absence, and sensor/log pipeline loss.
+- Disable anonymous MQTT; apply least-privilege topic ACLs and authenticated publisher.
+- Add appropriate auth to telemetry API; keep `/health` minimal and non-sensitive.
+- Remove static credentials from source/Compose; rotate credentials through approved secret management.
+- Define HTTP/HTTPS policy; enable TLS if data/auth crosses networks requiring confidentiality.
+- Verify PostgreSQL remains Docker-network-only; confirm published ports bind only intended interface.
+- Verify UFW rules, SSH management restriction, Auditd, Fail2ban, patch status, and time sync.
 
-Blue Team checks UFW/nftables, interface routes, IP forwarding, sysctl values, package updates, Fail2ban, Auditd rules, service state, and log permissions. Correlate each permitted test to Zeek `conn.log`/`http.log`/MQTT records, Suricata alerts if applicable, Nginx/Mosquitto logs, and SSH auth logs. Missing event is a monitoring gap, not proof of evasion.
+## 7. Evidence and Completion
 
-### Phase 7 — Findings, remediation, retest
+For each test record: run ID, operator, UTC start/end, VM snapshot ID, test ID, exact command, pre/post health, detection timestamp, event IDs, restore command, time-to-recover, data integrity check, patch details, retest result, and sign-off.
 
-Document asset, control, test ID, exact evidence, demonstrated impact, severity, owner, minimal fix, and retest. Blue Team remediates. Red Team repeats only failed, bounded checks after approval. Remove test principal/data and any temporary ban; retain evidence per project policy.
+Complete when every approved fault was restored within agreed RTO, telemetry and logs are intact, patches are applied, retests pass, and no temporary rule/service/account remains. This tests selected failure modes; it does not prove resilience against every outage cause.
 
-## 4. Pass Criteria
+## 8. Blueprint Risks (Not Yet Confirmed Runtime Findings)
 
-- Services and interface bindings match approved policy.
-- Internal SSH denied; management SSH follows explicit account and authentication policy.
-- No unauthenticated API response exposes non-public data; transport policy is explicit.
-- MQTT permissions are least privilege; anonymous access is disabled unless an explicit safe design justifies it.
-- PostgreSQL is not host-exposed; default credentials are removed from deployable configuration.
-- Required host/network events are timestamped, attributable, and searchable in Security Onion.
-- All findings have owner and retest evidence. Scope is partial: this validates documented controls, not every possible vulnerability.
+The blueprint shows anonymous Mosquitto (`allow_anonymous true`), unauthenticated `/api/telemetry`, HTTP-only Nginx, static database credentials, multi-interface exposure, and SSH allowed only from management subnet while attacker VM is on internal subnet. Treat these as source-level risks; verify configuration and intended policy before declaring findings.
 
-## 5. Source / Design Mismatches
+## Test IDs
 
-- `ip_plan.md` lists `192.168.56.10` management IP and documents HTTPS `443`; hardening plan excerpts do not specify 443 rule/listener.
-- Blueprint describes target NAT interface, but other plans do not consistently include it. Confirm interface/routing configuration before tests; never probe its DHCP address.
-- Hardening plan says PostgreSQL restricted to Docker network; Compose supports that by omitting port mapping, but verify effective runtime mapping.
-- Blueprint uses anonymous Mosquitto and no API auth in shown snippets, conflicting with least-privilege/security objectives. Runtime behavior remains unverified.
+- `P-01` baseline and VM/network verification
+- `P-02` service and telemetry health
+- `P-03` SIEM readiness
+- `AV-01` to `AV-07` bounded availability fault cases
+- `P-04` recovery, patch verification, cleanup, and sign-off
 
-## Test Index
-
-| ID | Control |
-|---|---|
-| T-01 | Lab baseline and sensor visibility |
-| T-02 | Approved-port exposure on internal interface |
-| T-03 | Blue Team listener, firewall, and interface review |
-| T-04 | SSH policy and controlled auth evidence |
-| T-05 | Read-only `/health` and `/api/telemetry` exposure check |
-| T-06 | MQTT config review and isolated test-topic ACL check |
-| T-07 | Docker/PostgreSQL exposure and secret configuration review |
-| T-08 | Sysctl, forwarding, Fail2ban, Auditd, patch-state review |
-| T-09 | SIEM correlation and monitoring-gap review |
-| T-10 | Cleanup and retest |
-
-**No command list can cover every possible vulnerability.** This plan targets controls and risks explicitly documented in the supplied blueprint; code review, dependency review, and additional authorized assessment require separate scope and evidence.
+No command list covers every vulnerability or failure mode. Add cases only through approved scope change and risk review.
