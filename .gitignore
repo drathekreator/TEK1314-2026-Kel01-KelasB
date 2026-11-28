@@ -1,0 +1,32 @@
+# Local tools and generated workspaces
+Dreamsheep-Simulation/
+Dreamsheep/
+pentest-system/
+
+# Local instructions and course reference files
+instruksi_agent_penataan_repo_pbl_tek1314.md
+Panduan PBL*.pdf
+Praktikum*.pdf
+Rev*.docx
+
+# Evidence, logs, secrets, and generated runtime data
+evidence/
+artifacts/
+*.log
+*.pcap
+*.pcapng
+*.key
+*.crt
+.env
+.env.*
+
+# Generated media; link large deliverables instead
+*.mp4
+*.mov
+*.mkv
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
